@@ -33,55 +33,62 @@ class Operation(Enum):
 class Value:
     def __init__(self, data):
         self.data = data
+        # this gradient is the contribution of this self node to the gradient of the node where we called backward (note if this is not t)
+        self.grad = 0 
         self.operation:Optional[Enum] = None
-        self.children:list[Value] = []
+        self._children:list[Value] = []
+        self._backward_fn = None
 
     def __repr__(self):
-        return f"Value({self.data})"
+        return f"Value({self.data}) with grad {self.grad}"
     
     # NOTE: equality on data attribute does not hold since lineage is not considered
     def __equal__(self, other):
-        return self.data == other.data and self.operation == other.operation and self.children == other.children
+        return self.data == other.data and self.operation == other.operation and self._children == other.children
 
     def __add__(self, other):
         other = other if isinstance(other, Value) else Value(other)
         new_value = Value(self.data + other.data)
         new_value.operation = Operation.ADD
-        new_value.children = [self, other]
+        new_value._children = [self, other]
         return new_value
     
     def __mul__(self, other): 
         other = other if isinstance(other, Value) else Value(other)
         new_value = Value(self.data * other.data)
         new_value.operation = Operation.MUL
-        new_value.children = [self, other]
+        new_value._children = [self, other]
         return new_value
 
-    def backward(self, parent_grad = 1, with_respect_to = None):
+    def backward(self, with_respect_to:Optional['Value'] = None, parent_grad:Optional[float] = 1):
         # compute gradient from node w.r.t. value 
+        # NOTE: if backward called a value object, with the with_respect_to_argument as None, then for each child node we consider gradient w.r.t. to that child node
         # search for the node w.r.t. which we are computing the gradient
         # whilst looking for the node take a running product of gradients encountered
         if isinstance(parent_grad, Value):
             print(f"Assuming you made a typo and w.r.p to be {parent_grad}")
-            with_respect_to = parent_grad
-            parent_grad = 1
-
-        if with_respect_to is None: #TODO
-            #TODO: what behavior do we want to have here?
-            pass 
+            #TODO
         
-        if self == with_respect_to:
-            return parent_grad
+        # only nodes with no children contribute to the gradient
+        if len(self._children) == 0:
+            if with_respect_to is None or with_respect_to == self:
+                self.grad = parent_grad
+            else:
+                self.grad = 0
+            return self.grad
 
-        if self.operation is None:
-            return 0
-        
-        ## this assumes that we have exactly 2 children
-        elif self.operation == Operation.ADD:
-            return self.children[0].backward(parent_grad, with_respect_to) + self.children[1].backward(parent_grad, with_respect_to)
-        
-        elif self.operation == Operation.MUL:
-            # product rule f0 = f1 * f2 => f0' = f1' * f2 + f1 * f2' 
-            return self.children[0].backward(parent_grad * self.children[1].data, with_respect_to) + self.children[1].backward(parent_grad * self.children[0].data, with_respect_to)
+        match self.operation:
+            case Operation.ADD:
+                for child in self._children:
+                    child.backward(with_respect_to=with_respect_to, parent_grad=parent_grad)
 
 
+            case Operation.MUL:
+                for index, child in enumerate(self._children):
+                    # assumes two children
+                    other_child = self._children[1 - index]
+                    child_grad = parent_grad * other_child.data
+                    child.backward(with_respect_to=with_respect_to, parent_grad=child_grad)        
+
+            case _: 
+                raise NotImplementedError(f"Operation {self.operation} not implemented")
