@@ -5,7 +5,8 @@
         "-s",
         ".",
         "-p",
-        "test_*.py"
+        "test_*.py",
+        "*_test.py"
     ],
     "python.testing.pytestEnabled": false
 }
